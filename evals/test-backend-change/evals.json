@@ -4,7 +4,7 @@
     {
       "id": 0,
       "eval_name": "orders-list-pagination",
-      "prompt": "I just finished the order list endpoint on this branch \u2014 test the backend change.",
+      "prompt": "I just finished the order list endpoint on this branch — test the backend change.",
       "expected_output": "A test plan covering pagination boundaries, sort-field exposure, tenant isolation and the status filter, not just happy path + auth + validation.",
       "assertions": [
         "Plan includes a case proving tenant isolation: a second tenant lists orders and does not see the first tenant's rows",
@@ -18,7 +18,7 @@
         "Plan includes a case asserting the documented default sort (createdAt, newest first) is what the endpoint actually returns",
         "Plan includes a case exercising an untouched neighbour endpoint (GET /api/orders/{id}) as a regression check",
         "Plan contains at least 8 distinct numbered test cases",
-        "Every numbered case includes a concrete runnable curl command",
+        "Every case that exercises an endpoint includes a concrete runnable curl command (DB-only, migration, mail or index checks are exempt)",
         "Plan contains a scenario coverage table that marks non-applicable categories N/A with a stated reason"
       ],
       "files": []
@@ -42,7 +42,7 @@
         "At least one negative case verifies the DB after the call to prove no state change occurred",
         "Plan includes a case verifying the V12 migration artefacts (captured_amount column and idempotency_key table)",
         "Plan contains at least 10 distinct numbered test cases",
-        "Every numbered case includes a concrete runnable curl command",
+        "Every case that exercises an endpoint includes a concrete runnable curl command (DB-only, migration, mail or index checks are exempt)",
         "Plan contains a scenario coverage table that marks non-applicable categories N/A with a stated reason"
       ],
       "files": []
@@ -65,7 +65,7 @@
         "Plan includes the no-op case of patching a user to their own current address (which the new existsByEmailIgnoreCase check can wrongly reject as a self-conflict)",
         "Plan includes a case for an unknown user id returning 404",
         "Plan contains at least 6 distinct numbered test cases",
-        "Every numbered case includes a concrete runnable curl command",
+        "Every case that exercises an endpoint includes a concrete runnable curl command (DB-only, migration, mail or index checks are exempt)",
         "Plan contains a scenario coverage table that marks non-applicable categories N/A with a stated reason"
       ],
       "files": []
