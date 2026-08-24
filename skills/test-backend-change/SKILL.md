@@ -1,55 +1,89 @@
 ---
 name: test-backend-change
-description: End-to-end test a Spring Boot backend change with curl plus database verification, producing a runnable Markdown report plus a rendered HTML report under docs/test-runs/. Use this whenever the user wants to verify a backend change works against a real running service — including phrases like "test this endpoint", "curl the backend", "verify the API", "test what I just built", "test the backend change", "fire curls", or any time the user has just finished a backend implementation and wants proof it works. The skill discovers the change from git diff and any spec/plan files under docs/, recalls (or learns and remembers per-project) how to start the service and authenticate, fires curl requests capturing the full request and response, queries the DB before and after each call to prove state changes, and writes everything to docs/test-runs/ as Markdown plus a self-contained HTML view with pass/fail summary, collapsible cases, and pretty-printed JSON. Default stack assumption is Spring Boot.
+description: End-to-end test a Spring Boot backend change with curl plus database verification against a real running service, producing a runnable Markdown report plus a rendered HTML dashboard under docs/test-runs/. Use this whenever the user wants proof that a backend change works — including phrases like "test this endpoint", "curl the backend", "verify the API", "test what I just built", "test the backend change", "fire curls", "edge cases on this endpoint", "what could go wrong with this API", "thorough backend test", "smoke test the backend", or any time the user has just finished a backend implementation (endpoint, DTO, migration, auth rule, error handling) and wants it exercised for real. The skill discovers the change from git diff and spec/plan files under docs/, recalls (or learns and remembers per-project) how to start the service and authenticate, designs a case list from every behaviour in the diff plus a 15-category checklist (auth, tenant isolation, boundaries, conflict, idempotency, state machine, concurrency, error contract, pagination, caching, neighbour regression), sizes it with a depth knob (smoke / standard / thorough), runs the cases in parallel worker subagents with DB queries before and after every call, and writes one report with a scenario-coverage table that names every category tested, N/A, or not run. Default stack assumption is Spring Boot.
 ---
 
 # Test Backend Change
 
 End-to-end test a backend change by:
 
-1. Discovering what changed (from git, any spec/plan under `docs/`, and a quick confirmation from the user)
+1. Discovering what changed (from git, any spec/plan under `docs/`, and one confirmation question that also states the run size)
 2. Understanding the app — recalled from per-project memory if available, otherwise discovered fresh and saved to memory for next time
-3. Starting the service (docker-compose preferred)
-4. Writing a small set of test cases for the change
-5. Firing curl requests and capturing the full request and response
-6. Querying the DB before and after each request to prove state changes
-7. Writing everything to `docs/test-runs/<timestamp>-<feature>.md` and rendering it as HTML
+3. Starting the service (docker-compose preferred) and authenticating
+4. Designing the case list from every behaviour in the diff plus a 15-category checklist, sized by the `depth` knob
+5. Firing every case with a DB query before and after, in parallel workers when the list is big
+6. Assembling one report under `docs/test-runs/<timestamp>-<feature>.md` and rendering it as an HTML dashboard
 
 **Default stack:** Spring Boot. The patterns below assume Spring unless evidence in the repo says otherwise.
 
-## Execution model: dispatch a subagent
+## Knobs
 
-This skill produces a lot of intermediate output — service startup logs, full curl responses, repeated DB query dumps. None of it is useful to keep in the main conversation; only the final report path and pass/fail summary matter.
+| Knob | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `depth` | `smoke` / `standard` / `thorough` | `standard` | how many cases survive the cap — smoke = P1 only (≤ 8), standard ≤ 20, thorough = no cap |
+| `max` | integer | from `depth` | explicit cap; overrides the number `depth` implies |
+| `workers` | 1–4 | 2 | how many execution subagents run at once |
+| `model` | `haiku` / `sonnet` / `opus` / `fable` | `sonnet` | model for the workers |
+| `planner` | same | inherit | model for the planner (omit the `model` parameter → the subagent inherits the session's model) |
+| `only` | `3,7,12` | — | rerun only these case numbers from the most recent report for the same feature |
 
-**Split the work:**
+Read the knobs in this order, first hit wins:
 
-- **Main session keeps:** Step 1 (discovery + the one-line confirmation question to the user) and Step 8 (reporting the result).
-- **Subagent runs:** Steps 2–7 (recall memory, start service, authenticate, write test cases, fire curls, query DB, write the report).
+1. `key=value` tokens in the invocation — `/test-backend-change depth=thorough workers=3`
+2. Plain words in the request — "quick", "smoke", "sanity" → `smoke`; "thorough", "deep", "everything", "all scenarios", "edge cases" → `thorough`
+3. A `## Test-run defaults` block in the project's `reference_backend_setup.md` memory (`depth: standard`, `workers: 2`, `model: sonnet`)
+4. The defaults in the table
 
-Use the `Agent` tool with `subagent_type: "general-purpose"` for the dispatch. The subagent inherits no context, so the prompt must be self-contained.
+Echo the resolved knobs in the Step 1 confirmation so the user can change them in the same breath.
 
-**Subagent brief — must include:**
+Why workers default to `sonnet`: executing a case is mechanical — run the curl, run the query, compare with the expectation the planner wrote down. The judgment is in the plan. Why the planner inherits the session model: reading a diff for behaviours and deciding which checklist rows apply is where a stronger model pays for itself.
 
-- The exact change under test (file paths, endpoint(s), behavior) as discovered in Step 1 and confirmed by the user. Don't make the subagent re-derive this.
+## Execution model: planner → workers → assemble
+
+A run produces a lot of intermediate output — startup logs, full responses, repeated DB dumps. None of it belongs in the main conversation; only the case list, the report path and the pass/fail/coverage summary do.
+
+**Main session:** Step 1 (discovery + one confirmation), the dispatches, the assemble step, Step 8 (relay).
+
+**Planner subagent** (`model` = the `planner` knob; omit the parameter to inherit): Steps 2–5 — recall memory, start the service, authenticate, design and size the case list, write the report skeleton. Returns the numbered case list with its worker assignment.
+
+**Worker subagents** (`model` = the `model` knob; `workers` of them, dispatched **in the same turn** so they overlap): Step 6 for their subset only. Each writes its cases to its own part file. A worker never touches another worker's cases or the skeleton.
+
+**Concurrency pass:** if the plan has concurrency cases, dispatch one more worker for them *after* the others return. Load from parallel workers skews the very thing those cases measure.
+
+**Assemble:** run `scripts/assemble_report.py` on the skeleton. It stitches the parts in case order, fills the verdicts into the case list, writes the summary, and renders the HTML. Deterministic, no model involved.
+
+Use the `Agent` tool with `subagent_type: "general-purpose"` and the `model` parameter for every dispatch. Subagents inherit no context, so each brief must be self-contained.
+
+**Planner brief — must include:**
+
+- The exact change under test (file paths, endpoints, behaviour) as discovered in Step 1 and confirmed by the user. Don't make the planner re-derive this.
 - Pointer to any spec/plan file under `docs/` that's relevant.
-- The project's memory directory path so the subagent can read/write the `reference_backend_setup.md` memory.
-- The full instructions for Steps 2–7 (either inline or by directing it to read this skill file and execute Steps 2–7 only).
-- The absolute path to `scripts/render_report.py` **and** to `references/scenario-catalog.md` in this skill's directory. Subagents inherit no context and won't find bundled files on their own — and the catalog is what stops the run from collapsing into four happy-path curls.
-- The instruction to walk the full Step 5b checklist and fill in the `## Scenario coverage` table, marking every category either with the covering case numbers or N/A plus a reason. Without this line the subagent optimizes for finishing, not for coverage.
-- An explicit reminder: **do not delete or clean up any test data** created during the run (see Step 6). Leave all rows in place.
-- The required return format (see below).
+- The resolved knobs (`depth`, `max`, `workers`, `only`).
+- The project's memory directory path so it can read/write `reference_backend_setup.md`.
+- The absolute path to this skill directory (for `references/scenario-catalog.md`), and the instruction to execute Steps 2–5 of this file only — no curls beyond the auth check.
+- The instruction to walk the full Step 5b checklist and fill in the `## Scenario coverage` table, marking every category with case numbers, N/A + reason, or "not run (over cap)" + case numbers. Without this line the planner optimises for finishing, not for coverage.
+- The required return format (below).
 
-**Subagent must return:**
+**Planner must return** (under ~300 words plus the list):
 
-- Absolute paths to both the `.md` report and the rendered `.html` under `docs/test-runs/`.
-- Pass/fail counts, and the number of scenario categories covered vs marked N/A.
-- Bulleted list of any failures or surprises (1 line each), with the likely cause if obvious from the response/DB diff.
-- Any category it could not test and why (e.g. "no second tenant available, so isolation untested") — an honest gap the user can act on beats a silent one.
-- Whether memory was created or updated this run.
+- Absolute path of the skeleton report and its `parts/` directory.
+- The auth recipe (login curl + how the credential travels afterwards) and the DB query command pattern, so workers don't rediscover them.
+- The numbered case list, one line each: `N. [worker A|B|C] [P1|P2] title — expected <status/state>`.
+- Categories it could not cover and why ("no second tenant available, so isolation is untested").
+- Whether memory was created or updated.
 
-Keep the return under ~200 words. The report file is the artifact; the return message is just enough for the main session to relay to the user.
+**Worker brief — must include:**
 
-**When NOT to dispatch:** if the discovery step in the main session reveals the diff is empty, unrelated, or the user wants to debate scope, resolve that conversationally first. Only dispatch once the change under test is pinned down.
+- The base URL, auth recipe, DB command pattern and the identifier prefix for this worker (`A-<timestamp>`), verbatim from the planner's return.
+- Its case subset, verbatim, each with the expected outcome. Nothing else from the plan.
+- The absolute path of its part file: `<skeleton-dir>/<skeleton-stem>/parts/<worker>.md`.
+- The instruction to execute Step 6 of this file only, write **only** `### Test N:` sections in the Step 7 format, and end every section with a `**Result:**` line.
+- An explicit reminder: **do not delete or clean up any test data** (see Step 6). Leave all rows in place.
+- A reminder that it cannot ask the user anything; a case it cannot run gets `**Result:** SKIP — <reason>`.
+
+**Worker must return:** the part file path, its pass/fail/skip counts, and one line per FAIL or surprise. Under ~120 words.
+
+**When NOT to dispatch:** if discovery reveals the diff is empty, unrelated, or the user wants to debate scope, resolve that conversationally first. Only dispatch once the change under test is pinned down.
 
 ## Why this exists
 
@@ -73,7 +107,7 @@ Gather these in parallel:
 - Look in `docs/` for recently-modified `.md` files matching the change — common patterns: `docs/<feature>-plan.md`, `docs/<feature>-spec.md`, anything from a `superpowers:writing-plans` or `superpowers:brainstorming` run. Match by domain terms appearing in the diff.
 - Check the most recent commit messages and current branch name for hints
 
-Then ask the user **one** short confirmation question, e.g.: "I see you added `POST /api/orders/discount` and modified `OrderService.applyDiscount` — that's the focus, right?" Don't pile on follow-ups; let them correct you if you're off.
+Then ask the user **one** short confirmation question that also states the run size, e.g.: "I see you added `POST /api/orders/discount` and modified `OrderService.applyDiscount` — that's the focus, right? New endpoint with a state machine and tenant scoping, so expect ~15–20 cases at `depth=standard`, 2 sonnet workers, roughly 10 minutes. Say `smoke` or `thorough` to change." Don't pile on follow-ups; let them correct you if you're off.
 
 If the working tree is clean and the branch has nothing on it, ask the user what to test before continuing.
 
@@ -89,6 +123,7 @@ Memory lives at the existing auto-memory path for the current project (the same 
 - Base URL and port
 - Auth flow: which endpoint issues tokens, request body shape, where the token goes on subsequent requests
 - DB type, connection details, and how to run queries against it
+- Optional `## Test-run defaults` block with knob defaults for this project
 
 **Verify the memory before trusting it.** Memory can drift. Quickly confirm:
 
@@ -104,7 +139,7 @@ If anything is stale, update the memory rather than acting on outdated info. Tru
 - **Base URL/port**: `application.yml` / `application.properties` — `server.port`, `server.servlet.context-path`. Check profile-specific files (`application-local.yml`).
 - **Auth**: search for `SecurityConfig`, `JwtFilter`, `WebSecurityConfigurerAdapter`, `SecurityFilterChain`, controllers under `/auth`, `/login`, `/oauth`. Identify the login endpoint, the request body shape, how the token comes back (response field name), and how it's sent on subsequent requests (typically `Authorization: Bearer <token>`).
 - **DB**: `spring.datasource.*` in config + the JDBC driver in `pom.xml` / `build.gradle` tells you the type. Note connection details and figure out the query path — usually `docker exec -i <db-container> psql -U <user> -d <db> -c "..."` for Postgres in compose, similar for MySQL/Mongo.
-- **Test credentials**: check `data.sql`, Flyway / Liquibase migrations under `src/main/resources/db/migration/`, or a seed file for a known test user before asking the user for one.
+- **Test credentials**: check `data.sql`, Flyway / Liquibase migrations under `src/main/resources/db/migration/`, or a seed file for a known test user before asking the user for one. Note a **second** user or tenant if one exists — the authorization and isolation cases need one.
 
 Save what you found as a `reference` memory and add a one-line pointer in `MEMORY.md`. Keep it structural, not ephemeral — auth endpoint shape, startup command, DB connection details. Avoid memorizing things that change frequently (current branch, today's seed data).
 
@@ -138,11 +173,13 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
 
 If the auth flow needs a user that doesn't exist, check seed data and migrations before asking — there's often a default test user.
 
+The planner runs this once to prove the recipe works and writes the recipe into its return. Each worker then logs in itself with the same recipe — sessions are cheap, and a worker that owns its session can renew it when it expires mid-run.
+
 ### Step 5 — Design the test cases
 
 This is the step that decides whether the run is worth anything. A report with four cases on a change that has fourteen observable behaviours isn't a light test — it's a false clean bill of health, and it's worse than no report at all, because the user now believes the change is verified.
 
-So build the case list from two directions and then reconcile them.
+So build the case list from two directions, reconcile them, then size the result.
 
 #### 5a — Mine the diff for behaviours
 
@@ -173,22 +210,43 @@ Mining the diff finds what the change *does*. This checklist finds what the chan
 9. **Idempotency & replay** — fire the identical request twice. Does it double-write? Does the second call return the same body, or a confusing 500 from a constraint violation?
 10. **State machine & ordering** — an invalid transition, an action out of order, an action on an already-terminal resource
 11. **Concurrency** — two identical requests genuinely in flight at once. Exactly one should win and the DB should show one row, not two.
-12. **Error contract** — every error response carries the project's standard envelope (code, requestId, field, correlation header). Check this on the errors you already produce in other cases rather than inventing a new one.
+12. **Error contract** — every error response carries the project's standard envelope (code, requestId, field, correlation header). Make this one case whose evidence cites the error responses the other cases already produced — one claim, one verdict, no new requests.
 13. **Pagination, filtering & sorting** — only if the change returns a collection: page past the end, `size=0`, size over the configured max, and a sort on a field that isn't whitelisted (which must be rejected, not passed into SQL)
 14. **Caching & conditional requests** — only if the change touches a cacheable read: ETag, `If-None-Match` → 304 with an empty body, `Last-Modified`
 15. **Neighbour regression** — one call to the nearest endpoint you did *not* change that shares the modified code path, proving the change didn't break it
 
 `references/scenario-catalog.md` has the concrete recipe for the categories that are awkward to test over HTTP — concurrency, idempotency, tenant isolation, sort injection, migration-reaches-existing-rows. Read it when you get to those rows; there's no need to reinvent the shell pattern each run.
 
-#### 5c — Size the run honestly
-
-Treat "cover the applicable rows" as the floor, not "hit some number". In practice a one-line bug fix lands around 5–8 cases and a new endpoint with a state machine and tenant scoping lands around 12–20. If you've written fewer than 8 cases for anything bigger than a typo fix, go back to 5b — you skipped rows.
+#### 5c — One case, one claim
 
 **One case makes one claim.** It's tempting to fold five assertions into a single numbered case to keep the list tidy, but then a failure tells the reader only that "case 3 failed" and they have to read the whole card to find out which of the five claims broke — and the pass/fail count over-reports coverage, because eight bundled cases look identical to eight real ones. Split them. Cheap setup (a login, a seed row) can be shared across cases; the *claim* can't.
 
 **Negative cases must prove the non-change.** A 400 is only half the evidence — the DB-after query showing zero rows written is the other half. Otherwise you've proven the API said no, not that it did nothing.
 
-Write the case list into the report's `## Test cases` section as you go. Don't stop to ask the user for approval — this step runs inside the subagent, which has no user to ask, and the coverage table is what surfaces your choices for review afterwards.
+**Every case states its expected outcome** — status, error code, DB state — before anything runs. The worker compares against that line; a case without an expectation can't fail, which means it can't pass either.
+
+#### 5d — Tier, cap, and assign
+
+The full list is the honest size of the change. In practice a one-line bug fix lands around 5–8 cases and a new endpoint with a state machine and tenant scoping lands around 15–25. If you've written fewer than 8 for anything bigger than a typo fix, go back to 5b — you skipped rows. The `depth` knob then decides how many run *this time*; the rest are recorded, not forgotten.
+
+**Tier every case:**
+
+- **P1** — happy path; persistence & side effects; authorization & tenant isolation; conflict/uniqueness and concurrency on write endpoints; neighbour regression; and any case that covers a `throw` added by the diff. These are the cases that find data leaks and double-writes.
+- **P2** — everything else: the individual validation and boundary variants, malformed JSON, wrong content type, expired token, pagination edges, ETag.
+
+**Apply the cap** (`max`, else `smoke` = P1 only ≤ 8, `standard` ≤ 20, `thorough` = unlimited): keep every P1, then P2 in checklist order until the cap. Never cut a P1 to make room for a P2. If P1 alone exceeds a `smoke` cap, keep the eight with the highest blast radius (isolation, persistence, conflict, neighbour first) and say so.
+
+Cut cases go under a `## Not run` heading in the skeleton, numbered continuously after the last running case, each with `— over cap (depth=standard)`. In the coverage table, a row whose only cases were cut reads `not run (over cap): 21, 22`. That's how a later `only=21,22` run knows what to pick up, and how the reader knows the green ring covers 20 of 27, not 20 of 20.
+
+**Assign workers** by what a case touches, not by number:
+
+- **A — read-only & negative:** authentication, authorization/isolation reads, validation, boundaries, not-found, protocol, error contract. Writes nothing, so it can run beside anything.
+- **B — writes:** happy path, persistence, conflict, idempotency, state machine, neighbour regression. Sequential inside the worker because each depends on the state the previous one left.
+- **C — concurrency:** runs alone, after A and B return.
+
+With `workers=1`, one worker runs A's cases, then B's, then C's. With `workers=3` or `4`, split B (and then A) by resource or flow, never by interleaving numbers. Throttle and lockout cases go last in their worker and use a second user when one exists — otherwise they lock the account every other worker logs in with.
+
+Write the skeleton (Step 7) with the `## Test cases` list, the `## Not run` list, and the filled `## Scenario coverage` table. Don't stop to ask the user for approval — the size was already stated in Step 1, and the coverage table is what surfaces the choices for review afterwards.
 
 ### Step 6 — Fire requests and capture everything
 
@@ -197,7 +255,7 @@ For each test case:
 1. **Query the DB before** the request (capture the relevant rows)
 2. **Fire the curl** and capture full request + response
 3. **Query the DB after** the request
-4. **Compare** before/after to confirm the expected state change (or expected non-change for negative cases)
+4. **Compare** before/after and the response against the case's expected outcome (or expected non-change for negative cases)
 
 Curl pattern — the request you paste into the report stays simple and copy-pasteable (`-i -s`, headers and body together):
 
@@ -217,6 +275,13 @@ curl -sS -D /tmp/h.txt -o /tmp/b.json -X POST http://localhost:8080/api/orders \
   -d '{"productId": 42, "quantity": 2}'
 cat /tmp/h.txt; echo; jq . /tmp/b.json 2>/dev/null || cat /tmp/b.json
 ```
+
+**Worker rules** (these matter only because several workers share one service and one DB):
+
+- Use `/tmp/<worker>-h.txt` style scratch paths and the identifier prefix from your brief for every row you create. Two workers writing `/tmp/h.txt` corrupt each other's evidence.
+- If a request that should be authenticated returns 401, re-run the login recipe once and retry before recording a verdict; note the re-login in the case. Sessions expire mid-run.
+- Record the verdict against the expectation in your brief. A different-but-defensible outcome is still a FAIL with the observed value in the result line — the reader decides, not the worker.
+- Never re-plan. A case that can't run as written gets `**Result:** SKIP — <reason>`, not a substitute case.
 
 **Formatting rules for anything that lands in the report:**
 
@@ -244,15 +309,19 @@ The before/after pair is what proves the change actually persisted (or correctly
 - Follow-up debugging often needs the exact rows the test produced; deleting them destroys evidence.
 - Idempotency / uniqueness collisions on a re-run are a *signal* worth surfacing in the report, not something to paper over by wiping data first.
 
-This means: no `DELETE` / `TRUNCATE` statements, no "cleanup" curl calls, no `docker compose down -v`, no resetting sequences. If a test case requires a clean slate (e.g., a uniqueness constraint), pick a fresh identifier (new email, new external ref, UUID) instead of deleting prior data. If that's not possible, stop and ask the user before removing anything.
+This means: no `DELETE` / `TRUNCATE` statements, no "cleanup" curl calls, no `docker compose down -v`, no resetting sequences. If a test case requires a clean slate (e.g., a uniqueness constraint), pick a fresh identifier (new email, new external ref, UUID) instead of deleting prior data. If that's not possible, mark the case SKIP with the reason.
 
 ### Step 7 — Write the report
 
-The run produces two files, from one source: you write the Markdown, a bundled script renders the HTML. Markdown is what gets committed, diffed, and grepped; HTML is what a human actually reads when the run has a dozen cases and a few hundred lines of JSON. Keeping one source means they can't drift.
+The run produces two files from one source: Markdown is written (skeleton by the planner, cases by the workers, stitched by the assembler), and a bundled script renders the HTML. Markdown is what gets committed, diffed, and grepped; HTML is what a human actually reads when the run has twenty cases and a few hundred lines of JSON. One source means they can't drift.
 
-Write to `docs/test-runs/<YYYY-MM-DD-HHMM>-<feature-slug>.md`. Create `docs/test-runs/` if it doesn't exist (the user's global rule keeps all docs under `docs/`).
+**Planner** writes the skeleton to `docs/test-runs/<YYYY-MM-DD-HHMM>-<feature-slug>.md` and creates `docs/test-runs/<YYYY-MM-DD-HHMM>-<feature-slug>/parts/`. Create `docs/test-runs/` if it doesn't exist (the user's global rule keeps all docs under `docs/`).
 
-Use this structure:
+**Workers** write `### Test N:` sections only, into `parts/<worker>.md`.
+
+**Assembler** (`python3 <skill-dir>/scripts/assemble_report.py docs/test-runs/<report>.md`) replaces `## Details` with the parts in case order, fills each line of `## Test cases` with its verdict (a case no part covered becomes `SKIP — not run`), writes `## Summary`, then calls the renderer. Run it again after an `only=` rerun and it merges the new parts over the old cases.
+
+Skeleton structure:
 
 ```markdown
 # Test Run: <feature> — <YYYY-MM-DD HH:MM>
@@ -269,12 +338,17 @@ Use this structure:
 - Base URL: `http://localhost:8080`
 - Auth: <one line, e.g., `POST /api/auth/login` with `{email, password}`, returns `access_token`>
 - DB: <type + how queries were run>
+- Run: depth=standard (cap 20), workers=2 (sonnet), planner=inherit
 
 ## Test cases
-1. **Happy path: create order with valid input** — PASS
-2. **Auth failure: missing token** — PASS
-3. **Validation: negative quantity** — FAIL (returned 500 instead of 400)
+1. **Happy path: create order with valid input** — expected 201, row with status CREATED
+2. **Auth failure: missing token** — expected 401, nothing written
+3. **Validation: negative quantity** — expected 400, nothing written
 4. ...
+
+## Not run
+21. **Boundary: quantity at max+1** — over cap (depth=standard)
+22. **Protocol: text/plain content type** — over cap (depth=standard)
 
 ## Scenario coverage
 | Category | Cases | Notes |
@@ -284,25 +358,32 @@ Use this structure:
 | Authentication | 2 | |
 | Authorization & tenant isolation | 6, 7 | tenant B gets 404, not 403 |
 | Input validation | 3, 4 | |
-| Boundary values | 4, 5 | quantity 0 / -1 / max+1 |
+| Boundary values | 4, 5 | quantity 0 / -1; not run (over cap): 21 |
 | Not found & referential integrity | 8 | |
 | Conflict & uniqueness | 10 | |
 | Idempotency & replay | 11 | |
 | State machine & ordering | N/A | create-only endpoint, no states |
 | Concurrency | 12 | 5 parallel creates, 1 row expected |
-| Error contract | 2, 3, 6, 8 | asserted on the errors above |
+| Error contract | 13 | cites the bodies of 2, 3, 6, 8 |
 | Pagination, filtering & sorting | N/A | returns a single object |
 | Caching & conditional requests | N/A | POST only, nothing cacheable |
-| Neighbour regression | 13 | `GET /api/orders` still returns 200 |
+| Neighbour regression | 14 | `GET /api/orders` still returns 200 |
 
 ## Details
 
+## Summary
+```
+
+Case section format (what a worker writes into its part file):
+
+```markdown
 ### Test 1: Happy path — create order with valid input
 **Goal:** verify a valid POST creates an order row with status `CREATED`.
+**Expected:** 201, one new row, status `CREATED`.
 
 **DB before:**
-\`\`\`sql
-SELECT id, status FROM orders WHERE customer_id = 7;
+\`\`\`bash
+docker exec -i pg psql -U app -d app -c "SELECT id, status FROM orders WHERE customer_id = 7;"
 \`\`\`
 \`\`\`
  id | status
@@ -332,8 +413,8 @@ Location: /api/orders/123
 \`\`\`
 
 **DB after:**
-\`\`\`sql
-SELECT id, status, total FROM orders WHERE customer_id = 7;
+\`\`\`bash
+docker exec -i pg psql -U app -d app -c "SELECT id, status, total FROM orders WHERE customer_id = 7;"
 \`\`\`
 \`\`\`
  id  | status  | total
@@ -342,26 +423,18 @@ SELECT id, status, total FROM orders WHERE customer_id = 7;
 \`\`\`
 
 **Result:** PASS — order persisted with the expected status and total.
-
-(repeat for each test case)
-
-## Summary
-- Tests passed: 3 / 4
-- Issues found:
-  - Test 3 — validation for negative quantity returns 500 instead of 400. `OrderController.create` likely needs `@Min(1)` on the quantity field or explicit validation in the service.
-- Next steps: <if any>
 ```
 
 Four things matter most about the report:
 
 - **The curls are runnable.** Anyone reading should be able to copy-paste them (with the right env vars) and reproduce the result. That's the artifact's whole value.
 - **The DB output is real.** Don't summarize it ("the row was created") — paste the actual psql output. That's the proof.
-- **Every case ends with a `**Result:** PASS` / `FAIL` line.** This is both the honest verdict and the hook the renderer reads to colour the case and build the pass/fail counts at the top. A case with no `**Result:**` line silently drops out of the tally.
-- **The coverage table is filled in, N/A rows included.** The pass count says how many claims held; the coverage table says how many claims were made. A reader needs both to know how much the green ring is worth, and an N/A with a reason is the only way a genuine gap is distinguishable from a forgotten one.
+- **Every case ends with a `**Result:** PASS` / `FAIL` / `SKIP` line.** This is both the honest verdict and the hook the renderer reads to colour the case and build the pass/fail counts at the top. A case with no `**Result:**` line silently drops out of the tally.
+- **The coverage table is filled in, N/A and not-run rows included.** The pass count says how many claims held; the coverage table says how many claims were made and how many were deferred. A reader needs all three to know how much the green ring is worth.
 
 #### Render the HTML
 
-Once the Markdown is written, run the bundled renderer:
+The assembler renders automatically. To re-render by hand:
 
 ```bash
 python3 <skill-dir>/scripts/render_report.py docs/test-runs/<report>.md
@@ -369,21 +442,21 @@ python3 <skill-dir>/scripts/render_report.py docs/test-runs/<report>.md
 
 It prints the path it wrote and needs nothing but Python 3 — no pip install, no network, one self-contained file.
 
-The HTML is deliberately not a copy of the Markdown in a nicer font. It's a dashboard built from the same facts: a pass-rate ring, counts of cases/endpoints/DB checks, a bar chart of every status code the run saw, an endpoint coverage table (which paths were hit, which statuses each returned), and one card per case showing a `METHOD → path → status → error code → DB` flow strip above the evidence. Failures are pre-opened and the checklist section is dropped, because the dashboard already says it.
+The HTML is deliberately not a copy of the Markdown in a nicer font. It's a dashboard built from the same facts: a pass-rate ring, counts of cases/endpoints/DB checks, how many scenario categories were covered, N/A, or not run, a bar chart of every status code the run saw, an endpoint coverage table (which paths were hit, which statuses each returned), and one card per case showing a `METHOD → path → status → error code → DB` flow strip above the evidence. Failures are pre-opened and the checklist section is dropped, because the dashboard already says it.
 
 If it errors, fix the Markdown rather than hand-writing HTML — an error almost always means a malformed fence or a missing blank line between headers and body inside an `http` block, and that same malformed block is what makes the Markdown hard to read too.
 
-Report both paths back. Don't commit either file unless the user asks.
+Don't commit either file unless the user asks.
 
 ### Step 8 — Tell the user
 
-This step runs back in the main session, after the subagent returns. Relay its summary: where the report is, pass/fail count, and any specific issues that warrant a follow-up. Surface failures explicitly — don't bury a failed test in a "mostly worked" summary.
+This step runs back in the main session, after the assembler finishes. Relay: where the report is, pass/fail/skip counts, how many categories were covered vs N/A vs not run, and any specific issues that warrant a follow-up. Surface failures explicitly — don't bury a failed test in a "mostly worked" summary.
 
-Relay coverage gaps too. "12/12 passed" reads very differently once the user knows tenant isolation went untested because there was only one tenant. If the subagent reported a category it couldn't reach, say so in one line and offer to cover it — that's usually the most useful sentence in the whole handoff.
+Relay coverage gaps too. "12/12 passed" reads very differently once the user knows tenant isolation went untested because there was only one tenant, or that seven boundary cases sit under `## Not run`. One line each, plus the offer: "`only=21,22` runs the deferred ones" or "`depth=thorough` next time".
 
 Give the user the HTML, not just its path — send the `.html` file so it opens for them (`SendUserFile` with `display: "render"`, or whatever the host offers). Mention the `.md` path alongside it for anyone who'd rather read it in the repo. A rendered report the user has to go find themselves usually doesn't get read.
 
-Do not re-read the report file to "verify" it before relaying — trust the subagent's structured return. If the user asks for details beyond the summary, then open the report.
+Do not re-read the report file to "verify" it before relaying — trust the assembler's output and the workers' structured returns. If the user asks for details beyond the summary, then open the report.
 
 ## When to stop and ask
 
@@ -406,7 +479,8 @@ What to include:
 - Base URL + port
 - Auth: endpoint, body shape, response field for the token, header name on subsequent requests
 - DB: type, container name, user, database name, query command pattern
-- Test credentials if discovered from seed data (don't memorize secrets the user typed in chat)
+- Test credentials if discovered from seed data (don't memorize secrets the user typed in chat), including a second user or tenant for isolation cases
+- A `## Test-run defaults` block if the user has expressed a preference (`depth`, `workers`, `model`)
 
 What not to include:
 - Current branch, current PR, today's test data, the specific endpoint you tested this run — those belong in the report, not in long-lived memory.
