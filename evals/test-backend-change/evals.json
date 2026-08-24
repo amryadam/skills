@@ -1,0 +1,74 @@
+{
+  "skill_name": "test-backend-change",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "orders-list-pagination",
+      "prompt": "I just finished the order list endpoint on this branch \u2014 test the backend change.",
+      "expected_output": "A test plan covering pagination boundaries, sort-field exposure, tenant isolation and the status filter, not just happy path + auth + validation.",
+      "assertions": [
+        "Plan includes a case proving tenant isolation: a second tenant lists orders and does not see the first tenant's rows",
+        "Plan includes a case requesting a page beyond the last page and expects an empty page rather than an error",
+        "Plan includes a case sending size above the configured max (100) and expects the size to be capped",
+        "Plan includes a case sending size=0 or a non-positive size",
+        "Plan includes a case sorting on a field that is not part of the response DTO (sort-parameter property-path exposure)",
+        "Plan includes a case for the status filter with an unknown or invalid status value",
+        "Plan includes an authentication-failure case (no or invalid token expects 401)",
+        "Plan includes a case verifying the new V7 index or that the list query is tenant-scoped at the SQL level",
+        "Plan includes a case asserting the documented default sort (createdAt, newest first) is what the endpoint actually returns",
+        "Plan includes a case exercising an untouched neighbour endpoint (GET /api/orders/{id}) as a regression check",
+        "Plan contains at least 8 distinct numbered test cases",
+        "Every numbered case includes a concrete runnable curl command",
+        "Plan contains a scenario coverage table that marks non-applicable categories N/A with a stated reason"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "eval_name": "payment-capture-state-machine",
+      "prompt": "capture endpoint is done, verify the API works",
+      "expected_output": "A test plan covering idempotent replay, concurrent double-capture, invalid state transitions, amount boundaries, role and ownership checks, and the published event.",
+      "assertions": [
+        "Plan includes an idempotency replay case: the same Idempotency-Key sent twice returns the same body and captures only once",
+        "Plan includes a concurrency case firing overlapping capture requests and proving only one capture landed in the DB",
+        "Plan includes an invalid state transition case (capturing a payment that is already CAPTURED, VOIDED, PENDING or EXPIRED)",
+        "Plan includes a case capturing more than the authorized amount and expecting rejection",
+        "Plan includes amount boundary cases (0, negative, and more than two decimal places)",
+        "Plan includes a partial-capture happy path where amount is less than the authorized amount",
+        "Plan includes an authorization case for a caller without the MERCHANT role expecting 403",
+        "Plan includes an ownership case where another merchant's payment id returns 404 rather than 403",
+        "Plan includes a case for an unknown payment id returning 404",
+        "Plan verifies the payments.captured event was actually published, checked outside the HTTP response (queue, outbox or broker API)",
+        "At least one negative case verifies the DB after the call to prove no state change occurred",
+        "Plan includes a case verifying the V12 migration artefacts (captured_amount column and idempotency_key table)",
+        "Plan contains at least 10 distinct numbered test cases",
+        "Every numbered case includes a concrete runnable curl command",
+        "Plan contains a scenario coverage table that marks non-applicable categories N/A with a stated reason"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "eval_name": "email-case-insensitive-fix",
+      "prompt": "small fix, emails should be case insensitive now. test it",
+      "expected_output": "A test plan that treats a three-file bug fix seriously: case and whitespace duplicates, the migration reaching existing rows, the mail side effect, the missing ownership check, and the self-conflict edge case.",
+      "assertions": [
+        "Plan includes a case where a differently-cased version of an existing address is rejected as a duplicate",
+        "Plan includes a case where an address with leading or trailing whitespace is rejected as a duplicate",
+        "Plan verifies with a DB query that the stored address is lower-cased and trimmed",
+        "Plan includes a case checking the V21 back-fill reached rows that existed before the change, not only newly created ones",
+        "Plan flags or tests the risk that the new unique index fails if two existing rows collide once lower-cased",
+        "Plan verifies the verification e-mail side effect outside the HTTP response (mailpit or the mail API)",
+        "Plan includes a negative case proving no verification e-mail is sent when the change is rejected",
+        "Plan verifies emailVerified is reset to false in the database after a successful change",
+        "Plan includes an authorization case: one user attempting to change another user's e-mail",
+        "Plan includes the no-op case of patching a user to their own current address (which the new existsByEmailIgnoreCase check can wrongly reject as a self-conflict)",
+        "Plan includes a case for an unknown user id returning 404",
+        "Plan contains at least 6 distinct numbered test cases",
+        "Every numbered case includes a concrete runnable curl command",
+        "Plan contains a scenario coverage table that marks non-applicable categories N/A with a stated reason"
+      ],
+      "files": []
+    }
+  ]
+}
