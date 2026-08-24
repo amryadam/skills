@@ -588,6 +588,47 @@ def coverage_table(cases: list[Section]) -> str:
     )
 
 
+NA_RE = re.compile(r"^\s*(?:n/?a|not applicable|none|—|-)\s*$", re.I)
+NOTRUN_RE = re.compile(r"not\s+run", re.I)
+
+
+def scenario_coverage(sections: list[Section]) -> tuple[dict[str, int], str]:
+    """Counts and a chip strip from the report's `## Scenario coverage` table.
+
+    The pass ring says how many claims held. This says how many categories were
+    even asked about — covered (case numbers), N/A (with a reason), not run
+    (deferred by the depth cap) or left blank, which is the one a reader should
+    distrust. Nothing is inferred: a report without the table gets no chips.
+    """
+    counts = {"covered": 0, "na": 0, "notrun": 0, "empty": 0}
+    sec = next((s for s in sections if s.level == 2 and s.title.strip().lower() == "scenario coverage"), None)
+    if sec is None:
+        return counts, ""
+    rows = [r for r in sec.raw if r.lstrip().startswith("|") and r.count("|") >= 2
+            and not re.match(r"^\s*\|?[\s:\-|]+\|?\s*$", r)]
+    chips: list[str] = []
+    for r in rows[1:]:
+        cells = [c.strip() for c in r.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        cat, cases = cells[0], cells[1]
+        note = cells[2] if len(cells) > 2 else ""
+        active = " ".join(seg for seg in re.split(r"[;]", cases) if not NOTRUN_RE.search(seg))
+        if re.search(r"\d", active):
+            kind, label = "covered", cases
+        elif NOTRUN_RE.search(cases):
+            kind, label = "notrun", cases
+        elif NA_RE.match(cases):
+            kind, label = "na", "N/A"
+        else:
+            kind, label = "empty", "unfilled"
+        counts[kind] += 1
+        cls = {"covered": "c-yes", "na": "c-na", "notrun": "c-no", "empty": "c-empty"}[kind]
+        title = f' title="{esc(note)}"' if note else ""
+        chips.append(f'<span class="{cls}"{title}>{inline(cat)} <em>{inline(label)}</em></span>')
+    return counts, (f'<div class="scov">{"".join(chips)}</div>' if chips else "")
+
+
 def flow_strip(case: Section) -> str:
     """A one-line picture of what the case did: request → response → DB check.
 
@@ -671,6 +712,7 @@ margin:0 0 12px;font-weight:700}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:10px;margin-bottom:14px}
 .stat{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:11px 13px}
 .stat b{display:block;font-size:23px;line-height:1.2;letter-spacing:-.02em}
+.scov{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}.scov span{font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--fg)}.scov span em{font-style:normal;color:var(--muted);margin-left:4px}.scov .c-yes{border-color:var(--ok)}.scov .c-yes em{color:var(--ok)}.scov .c-na{color:var(--muted)}.scov .c-no{border-color:var(--warn)}.scov .c-no em{color:var(--warn)}.scov .c-empty{border-color:var(--err)}.scov .c-empty em{color:var(--err)}
 .stat span{font-size:11px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
 .stat.ok b{color:var(--ok)} .stat.err b{color:var(--err)} .stat.warn b{color:var(--warn)}
 
@@ -857,6 +899,7 @@ def build(md: str, source_name: str) -> str:
     codes = Counter(c.status() for c in cases if c.status() is not None)
     endpoints = {(c.request()[0], normalize_path(c.request()[1])) for c in cases if c.request()[1]}
     db_qs = sum(c.db_queries() for c in cases)
+    cov_counts, cov_chips = scenario_coverage(sections)
 
     # --- masthead meta, scavenged from the report's own bullet lines --------
     meta_bits: list[str] = []
@@ -878,6 +921,14 @@ def build(md: str, source_name: str) -> str:
         stats.append(("warn", counts["SKIP"], "skipped"))
     stats.append(("", len(endpoints), "endpoints"))
     stats.append(("", db_qs, "db checks"))
+    if sum(cov_counts.values()):
+        stats.append(("ok" if not cov_counts["empty"] else "", cov_counts["covered"], "categories"))
+        if cov_counts["na"]:
+            stats.append(("", cov_counts["na"], "n/a"))
+        if cov_counts["notrun"]:
+            stats.append(("warn", cov_counts["notrun"], "not run"))
+        if cov_counts["empty"]:
+            stats.append(("err", cov_counts["empty"], "unfilled"))
     stat_html = "".join(
         f'<div class="stat {cls}"><b>{val}</b><span>{lab}</span></div>'
         for cls, val, lab in stats
@@ -909,6 +960,8 @@ def build(md: str, source_name: str) -> str:
         if title_l in SKIP_SECTIONS:
             continue
         content = "".join(s.html)
+        if title_l == "scenario coverage" and cov_chips:
+            content = cov_chips + content
         if not content.strip():
             continue
         if title_l in LONG_SECTIONS:
