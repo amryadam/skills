@@ -1,17 +1,32 @@
-# claude-skills
+# skills
 
-Claude Code skills for backend engineering work.
+Agent skills for backend engineering work.
 
 ## Install
 
+Works with any agent — Claude Code, Cursor, Codex, Copilot, OpenCode and 70-odd others:
+
+```bash
+npx skills@latest add amryadam/skills
 ```
-/plugin marketplace add amryadam/claude-skills
+
+Pick specific targets with `-a`, or install everywhere it finds an agent:
+
+```bash
+npx skills@latest add amryadam/skills -a claude-code -a cursor
+npx skills@latest add amryadam/skills --agent '*'
+```
+
+### Claude Code plugin
+
+If you'd rather install it as a Claude Code plugin, so updates arrive with the repo:
+
+```
+/plugin marketplace add amryadam/skills
 /plugin install amryadam-skills
 ```
 
-That's it. The skills become available in every Claude Code session.
-
-To update later, Claude Code pulls the repo for you — or run `/plugin marketplace update amryadam`.
+Update later with `/plugin marketplace update amryadam`.
 
 ## Skills
 

@@ -11,7 +11,14 @@
       "source": "./",
       "description": "Skills for backend engineering work, starting with end-to-end API testing against a real running service.",
       "category": "engineering",
-      "keywords": ["engineering", "skills", "backend", "testing", "api", "spring-boot"]
+      "keywords": [
+        "engineering",
+        "skills",
+        "backend",
+        "testing",
+        "api",
+        "spring-boot"
+      ]
     }
   ]
 }

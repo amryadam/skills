@@ -2,7 +2,16 @@
   "name": "amryadam-skills",
   "version": "1.0.0",
   "description": "Skills for backend engineering work, starting with end-to-end API testing against a real running service.",
-  "author": { "name": "Amr Yadam" },
-  "homepage": "https://github.com/amryadam/claude-skills",
-  "keywords": ["engineering", "skills", "backend", "testing", "api", "spring-boot"]
+  "author": {
+    "name": "Amr Yadam"
+  },
+  "homepage": "https://github.com/amryadam/skills",
+  "keywords": [
+    "engineering",
+    "skills",
+    "backend",
+    "testing",
+    "api",
+    "spring-boot"
+  ]
 }
