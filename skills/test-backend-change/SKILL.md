@@ -61,6 +61,7 @@ Use the `Agent` tool with `subagent_type: "general-purpose"` and the `model` par
 - The resolved knobs (`depth`, `max`, `workers`, `only`).
 - The project's memory directory path so it can read/write `reference_backend_setup.md`.
 - The absolute path to this skill directory (for `references/scenario-catalog.md`), and the instruction to execute Steps 2–5 of this file only — no curls beyond the auth check.
+- The instruction to order the returned case list common-to-rare per Step 5d — happy path first, rare cases last — and to number it only after ordering. A planner told just to "design cases" returns them in diff order, which puts error cases on top of a run whose diff touched error handling.
 - The instruction to walk the full Step 5b checklist and fill in the `## Scenario coverage` table, marking every category with case numbers, N/A + reason, or "not run (over cap)" + case numbers. Without this line the planner optimises for finishing, not for coverage.
 - The required return format (below).
 
@@ -225,23 +226,35 @@ Mining the diff finds what the change *does*. This checklist finds what the chan
 
 **Every case states its expected outcome** — status, error code, DB state — before anything runs. The worker compares against that line; a case without an expectation can't fail, which means it can't pass either.
 
-#### 5d — Group the cases into areas
+#### 5d — Order the cases from common to rare
+
+Decide the reading order before you number anything. **Happy path first. Then the usual failures — bad input, no token, the wrong tenant. Then the rare cases last — concurrency, replay, boundary limits, and the cases you wrote because one line of the diff looked odd.**
+
+Two things this buys, both of which are lost the moment the list follows the diff instead:
+
+- A reader who stops halfway has still read the cases that carry the most weight.
+- A reviewer sees at once whether you tested the basic path at all — a list that opens with four validation errors reads as a run that never checked the endpoint works.
+
+**A change to error handling is not an exception.** When the whole diff is about failure responses it feels natural to open with failures, and that is exactly the run that most needs the happy path at the top: the claim a reviewer cannot check from the diff is that the success path still succeeds and its success body is unchanged. Lead with that, then the errors the diff actually rewrote.
+
+Order the areas the same way — the area holding the main change goes first, the far corners go last. **Number the cases after they are in this order, not before**, so the numbers a reader cites stay stable.
+
+#### 5e — Group the cases into areas
 
 Six cases are a list. Eighty in one flat list are a wall, and a reader who can't find the part they came for reads none of it. Decide the grouping here, while the diff is still in front of you — not afterwards, when the numbers are already fixed and regrouping means renumbering.
 
-An **area** is one coherent slice of the change: the error envelope, signup validation, the editor endpoints, the bundle endpoint plus tenant isolation. Three to six areas is the useful range; ten areas is a second flat list wearing a hat.
+An **area** is one coherent slice of the change: the error envelope, signup validation, the editor endpoints, the bundle endpoint plus tenant isolation. Three to six areas is the useful range; ten areas is a second flat list wearing a hat. Group *within* the order 5d gave you — grouping re-arranges nothing, it only draws headings around runs of cases that are already in reading order.
 
-Three rules make an area worth having:
+Two rules make an area worth having:
 
 - **Case numbers stay contiguous.** An area is one unbroken range — 1–16, 17–36, 37–61 — never "1–4, 9, 22". Number the cases in area order and the ranges fall out on their own. Contiguity is what lets the report state a range instead of listing twenty numbers, and what lets a reader jump to an area and trust that everything under the heading belongs to it.
-- **Cases go from common to rare.** Put the happy path first. Then put the usual failures: bad input, no token, the wrong tenant. Put the rare cases last: concurrency, replay, boundary limits, and the cases you wrote because one line of the diff looked odd. A reader who stops halfway has still read the cases that carry the most weight, and a reviewer sees at once whether you tested the basic path at all. Order the areas the same way — the area that holds the main change goes first, the far corners go last. Number the cases after you put them in this order, not before.
 - **Titles are short and plain.** Three to five words in ASD-STE100 Simplified Technical English (the user's global rule), naming the slice and not the verdict: "Signup validation", "Bundle endpoint and tenant isolation". A title you can't say in five words is usually two areas.
 
-**Below roughly 10 cases, don't group.** Grouping eight cases costs the reader a `## Navigation` section, a set of sub-headings and a set of `## Details —` splits to organize eight cards they could have read in one pass — ceremony charged against a report nobody needed help with. Ten is guidance, not a gate: eight cases that fall into two obvious halves can be grouped, and fourteen cases that are all one endpoint and one validator should stay flat. The honest test is whether you can name the areas in four words each without straining. If you can't, the run doesn't have areas — leave it flat, and the renderer will leave it flat too. The common-to-rare order still applies to a flat list: happy path first, the rare cases last.
+**Below roughly 10 cases, don't group.** Grouping eight cases costs the reader a `## Navigation` section, a set of sub-headings and a set of `## Details —` splits to organize eight cards they could have read in one pass — ceremony charged against a report nobody needed help with. Ten is guidance, not a gate: eight cases that fall into two obvious halves can be grouped, and fourteen cases that are all one endpoint and one validator should stay flat. The honest test is whether you can name the areas in four words each without straining. If you can't, the run doesn't have areas — leave it flat, and the renderer will leave it flat too. Skipping this step never skips 5d: a flat list is still ordered happy path first, rare cases last.
 
 **If the run is split across parallel worker agents, the areas are already decided.** Each worker owns a case-number range, so each range *is* an area: hand the worker its area title along with its range, and have it number only inside that range. The merge step then preserves the grouping for free — no renumbering across workers, which would break the one property the report depends on.
 
-#### 5e — Tier, cap, and assign
+#### 5f — Tier, cap, and assign
 
 The full list is the honest size of the change. In practice a one-line bug fix lands around 5–8 cases and a new endpoint with a state machine and tenant scoping lands around 15–25. If you've written fewer than 8 for anything bigger than a typo fix, go back to 5b — you skipped rows. The `depth` knob then decides how many run *this time*; the rest are recorded, not forgotten.
 
@@ -358,7 +371,7 @@ Skeleton structure:
 
 ## Navigation
 <Below ~10 cases, drop this section, drop the sub-headings under `## Test cases`,
-and use a single flat `## Details`. See Step 5d.>
+and use a single flat `## Details`. See Step 5e.>
 
 The <N> cases are in <k> areas. Each area is one unbroken range of case numbers.
 
@@ -463,7 +476,7 @@ Five things matter most about the report:
 - **The DB output is real.** Don't summarize it ("the row was created") — paste the actual psql output. That's the proof.
 - **Every case ends with a `**Result:** PASS` / `FAIL` / `SKIP` line.** This is both the honest verdict and the hook the renderer reads to colour the case and build the pass/fail counts at the top. A case with no `**Result:**` line silently drops out of the tally.
 - **The coverage table is filled in, N/A and not-run rows included.** The pass count says how many claims held; the coverage table says how many claims were made and how many were deferred. A reader needs all three to know how much the green ring is worth, and an N/A with a reason is the only way a genuine gap is distinguishable from a forgotten one.
-- **The grouping is all three places or none of them.** If the run has areas (Step 5d), it has a `## Navigation` list, sub-headings under `## Test cases`, and one `## Details — <area>` section per area — and the ranges agree across all three. Half a grouping is worse than none: the renderer reads the `## Details — <area>` headings, so a report that groups the checklist but keeps one flat `## Details` gets no areas in the HTML and the reader is told about ranges the page can't show. Below ~10 cases, none of the three: plain `## Details`, no `## Navigation`, no sub-headings.
+- **The grouping is all three places or none of them.** If the run has areas (Step 5e), it has a `## Navigation` list, sub-headings under `## Test cases`, and one `## Details — <area>` section per area — and the ranges agree across all three. Half a grouping is worse than none: the renderer reads the `## Details — <area>` headings, so a report that groups the checklist but keeps one flat `## Details` gets no areas in the HTML and the reader is told about ranges the page can't show. Below ~10 cases, none of the three: plain `## Details`, no `## Navigation`, no sub-headings.
 
 #### Render the HTML
 
@@ -491,6 +504,31 @@ What the reader gets:
 The `## Test cases` checklist is dropped from the HTML because the cards and the dashboard already say it.
 
 If it errors, fix the Markdown rather than hand-writing HTML — an error almost always means a malformed fence or a missing blank line between headers and body inside an `http` block, and that same malformed block is what makes the Markdown hard to read too.
+
+#### Replay a block from the report (optional, local only)
+
+Every `bash` block in the HTML has a **Run** button next to its copy button. A browser cannot run `curl` or `docker`. So the button sends the block to a small local process, which runs it and puts the exit code, the stdout, the stderr and the elapsed time under the block.
+
+That process is the second bundled script. Start it like this:
+
+```bash
+python3 <skill-dir>/scripts/run_report_server.py docs/test-runs/<report>.md
+```
+
+It prints an address, usually `http://127.0.0.1:8777/`. Open that address in a browser. The runner serves the report page itself. The page and the run API then have the same origin, and no CORS rule can block the request. This is the reason the buttons work from that address and not from a `file://` page.
+
+The runner is optional. The `.html` file on disk stays fully readable with no runner. Without a runner the Run buttons show a hint that gives the exact start command, and every copy button continues to work.
+
+Six facts about the runner:
+
+- **It is local only.** It listens on `127.0.0.1`. It makes a random token when it starts and puts the token in the page it serves. A request with no token, or with a different token, gets a 403.
+- **It replays. It does not execute anything you type.** When it starts, it reads every `bash` block in the report. It runs a command only when the command is the same as one of those blocks. Trailing whitespace is the only difference it accepts. All other commands get a 403.
+- **One shell keeps the state.** All blocks go to the same `bash` process. A variable that one block sets, such as `TOK` or `XSRF`, is still set when a later block uses it. The **Reset shell** control starts a new shell and clears those variables.
+- **A block that does not stop is killed.** The limit is 30 seconds. Use `--timeout` to change it. The runner keeps a maximum of 256 KB from each stream, and it tells you when it cuts the output.
+- **It reports what happened.** It shows the exit code, and a non-zero exit looks different from a zero exit. When the block is the case request, and the case recorded a status, the page compares the live status with the recorded one. **Run all in this case** runs the blocks of one case in order and stops at the first non-zero exit.
+- **The requests are real.** A Run button sends the real request to the live service. Every write in the report, such as a signup or an override write, happens again. The panel and the terminal banner both give this warning.
+
+Stop the runner with Ctrl-C when you are done.
 
 Don't commit either file unless the user asks.
 
