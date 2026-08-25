@@ -21,7 +21,8 @@ What the script does, in order:
 2. Rewrites each numbered line of `## Test cases` to end in its verdict. A case
    listed but found in no part becomes `SKIP — not run`, and a stub section is
    written for it so the dashboard's count stays honest.
-3. Replaces `## Details` with the sections in numeric order.
+3. Files each section under its `## Details — <area>` heading, in numeric
+   order. A run that did not group gets one flat `## Details` instead.
 4. Writes `## Summary`: counts, one line per FAIL and SKIP (with the note from
    the result line), and the `## Not run` count if that section exists.
 5. Renders the HTML with render_report.py from the same directory, unless
@@ -77,6 +78,63 @@ def replace_h2(md: str, title: str, body: str) -> str:
     if b is None:
         return md.rstrip() + "\n\n" + block
     return md[: b[0]] + block + md[b[1]:]
+
+
+AREA_RE = re.compile(r"^###\s+(.*?)\s*$", re.M)
+
+
+def areas_of_checklist(md: str) -> dict[int, str]:
+    """{case number: area name} read off the `### <area>` sub-headings.
+
+    An ungrouped checklist has no sub-headings, so every case maps to nothing
+    and the caller falls back to one flat `## Details`.
+    """
+    b = h2_bounds(md, "Test cases")
+    if b is None:
+        return {}
+    out: dict[int, str] = {}
+    area = ""
+    for line in md[b[0]:b[1]].split("\n"):
+        a = AREA_RE.match(line)
+        if a:
+            area = a.group(1)
+            continue
+        m = LISTED_RE.match(line)
+        if m and area:
+            out[int(m.group(2))] = area
+    return out
+
+
+def place_in_areas(md: str, sections: dict[int, tuple[float, str]]) -> str | None:
+    """Put each card under its own `## Details — <area>`, keeping the lead line.
+
+    Returns None when the report is not grouped, or when the skeleton's area
+    headings do not cover every case — either way the caller writes one flat
+    `## Details` instead. Half a grouping renders worse than none: the renderer
+    needs every case under an area before it will draw the areas panel.
+    """
+    area_of = areas_of_checklist(md)
+    if not area_of or any(n not in area_of for n in sections):
+        return None
+    headings = [t for t in H2_RE.findall(md) if t.startswith("Details —") or t.startswith("Details -")]
+    named = {t.split("—", 1)[-1].split("-", 1)[-1].strip() if "—" in t else t.split("-", 1)[-1].strip(): t
+             for t in headings}
+    if set(named) != set(area_of.values()):
+        return None
+    stale = h2_bounds(md, "Details")   # a flat block left by an earlier assemble
+    if stale is not None:
+        md = md[: stale[0]] + md[stale[1]:]
+    for area, title in named.items():
+        b = h2_bounds(md, title)
+        if b is None:
+            return None
+        body_now = md[b[0]:b[1]].split("\n", 1)[1]
+        cut = body_now.find("\n### ")          # keep the lead; drop cards from an earlier assemble
+        lead = (body_now if cut < 0 else body_now[:cut]).strip()
+        cards = [sections[n][1] for n in sorted(sections) if area_of[n] == area]
+        body = (lead + "\n\n" if lead else "") + "\n".join(cards)
+        md = replace_h2(md, title, body)
+    return md
 
 
 def strip_listed_verdict(text: str) -> str:
@@ -142,9 +200,13 @@ def main() -> int:
             plain = re.sub(r"\*\*", "", title)
             sections[n] = (0.0, f"### Test {n}: {plain}\n\n**Result:** SKIP — not run (no worker reached this case).\n")
 
-    # 3. details
-    ordered = [sections[n][1] for n in sorted(sections)]
-    md = replace_h2(md, "Details", "\n".join(ordered))
+    # 3. details — into the area sections when the run grouped, else one flat block
+    grouped = place_in_areas(md, sections)
+    if grouped is not None:
+        md = grouped
+    else:
+        ordered = [sections[n][1] for n in sorted(sections)]
+        md = replace_h2(md, "Details", "\n".join(ordered))
 
     # 4. summary
     verdicts = {n: verdict_of(sec) for n, (_, sec) in sections.items()}
