@@ -128,7 +128,9 @@ def place_in_areas(md: str, sections: dict[int, tuple[float, str]]) -> str | Non
         b = h2_bounds(md, title)
         if b is None:
             return None
-        lead = md[b[0]:b[1]].split("\n", 1)[1].strip()
+        body_now = md[b[0]:b[1]].split("\n", 1)[1]
+        cut = body_now.find("\n### ")          # keep the lead; drop cards from an earlier assemble
+        lead = (body_now if cut < 0 else body_now[:cut]).strip()
         cards = [sections[n][1] for n in sorted(sections) if area_of[n] == area]
         body = (lead + "\n\n" if lead else "") + "\n".join(cards)
         md = replace_h2(md, title, body)
