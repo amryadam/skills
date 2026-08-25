@@ -188,6 +188,21 @@ Treat "cover the applicable rows" as the floor, not "hit some number". In practi
 
 **Negative cases must prove the non-change.** A 400 is only half the evidence — the DB-after query showing zero rows written is the other half. Otherwise you've proven the API said no, not that it did nothing.
 
+#### 5d — Group the cases into areas
+
+Six cases are a list. Eighty in one flat list are a wall, and a reader who can't find the part they came for reads none of it. Decide the grouping here, while the diff is still in front of you — not afterwards, when the numbers are already fixed and regrouping means renumbering.
+
+An **area** is one coherent slice of the change: the error envelope, signup validation, the editor endpoints, the bundle endpoint plus tenant isolation. Three to six areas is the useful range; ten areas is a second flat list wearing a hat.
+
+Two rules make an area worth having:
+
+- **Case numbers stay contiguous.** An area is one unbroken range — 1–16, 17–36, 37–61 — never "1–4, 9, 22". Number the cases in area order and the ranges fall out on their own. Contiguity is what lets the report state a range instead of listing twenty numbers, and what lets a reader jump to an area and trust that everything under the heading belongs to it.
+- **Titles are short and plain.** Three to five words in ASD-STE100 Simplified Technical English (the user's global rule), naming the slice and not the verdict: "Signup validation", "Bundle endpoint and tenant isolation". A title you can't say in five words is usually two areas.
+
+**Below roughly 10 cases, don't group.** Grouping eight cases costs the reader a `## Navigation` section, a set of sub-headings and a set of `## Details —` splits to organize eight cards they could have read in one pass — ceremony charged against a report nobody needed help with. Ten is guidance, not a gate: eight cases that fall into two obvious halves can be grouped, and fourteen cases that are all one endpoint and one validator should stay flat. The honest test is whether you can name the areas in four words each without straining. If you can't, the run doesn't have areas — leave it flat, and the renderer will leave it flat too.
+
+**If the run is split across parallel worker agents, the areas are already decided.** Each worker owns a case-number range, so each range *is* an area: hand the worker its area title along with its range, and have it number only inside that range. The merge step then preserves the grouping for free — no renumbering across workers, which would break the one property the report depends on.
+
 Write the case list into the report's `## Test cases` section as you go. Don't stop to ask the user for approval — this step runs inside the subagent, which has no user to ask, and the coverage table is what surfaces your choices for review afterwards.
 
 ### Step 6 — Fire requests and capture everything
@@ -270,11 +285,25 @@ Use this structure:
 - Auth: <one line, e.g., `POST /api/auth/login` with `{email, password}`, returns `access_token`>
 - DB: <type + how queries were run>
 
+## Navigation
+<Below ~10 cases, drop this section, drop the sub-headings under `## Test cases`,
+and use a single flat `## Details`. See Step 5d.>
+
+The <N> cases are in <k> areas. Each area is one unbroken range of case numbers.
+
+- **<Area one>** — cases 1–16 (16 cases, 16 PASS / 0 FAIL)
+- **<Area two>** — cases 17–36 (20 cases, 19 PASS / 1 FAIL: 35)
+- **<Area three>** — cases 37–61 (25 cases, 22 PASS / 3 FAIL: 39, 57, 59)
+
 ## Test cases
+
+### <Area one>
 1. **Happy path: create order with valid input** — PASS
 2. **Auth failure: missing token** — PASS
 3. **Validation: negative quantity** — FAIL (returned 500 instead of 400)
-4. ...
+
+### <Area two>
+17. **...** — PASS
 
 ## Scenario coverage
 | Category | Cases | Notes |
@@ -295,7 +324,9 @@ Use this structure:
 | Caching & conditional requests | N/A | POST only, nothing cacheable |
 | Neighbour regression | 13 | `GET /api/orders` still returns 200 |
 
-## Details
+## Details — <Area one>
+
+<One line: the case range, the split, and what this area covers.>
 
 ### Test 1: Happy path — create order with valid input
 **Goal:** verify a valid POST creates an order row with status `CREATED`.
@@ -343,7 +374,8 @@ SELECT id, status, total FROM orders WHERE customer_id = 7;
 
 **Result:** PASS — order persisted with the expected status and total.
 
-(repeat for each test case)
+(repeat for each test case, then `## Details — <Area two>` and so on. On a run
+below ~10 cases this is one flat `## Details` and there are no area sections.)
 
 ## Summary
 - Tests passed: 3 / 4
@@ -352,12 +384,13 @@ SELECT id, status, total FROM orders WHERE customer_id = 7;
 - Next steps: <if any>
 ```
 
-Four things matter most about the report:
+Five things matter most about the report:
 
 - **The curls are runnable.** Anyone reading should be able to copy-paste them (with the right env vars) and reproduce the result. That's the artifact's whole value.
 - **The DB output is real.** Don't summarize it ("the row was created") — paste the actual psql output. That's the proof.
 - **Every case ends with a `**Result:** PASS` / `FAIL` line.** This is both the honest verdict and the hook the renderer reads to colour the case and build the pass/fail counts at the top. A case with no `**Result:**` line silently drops out of the tally.
 - **The coverage table is filled in, N/A rows included.** The pass count says how many claims held; the coverage table says how many claims were made. A reader needs both to know how much the green ring is worth, and an N/A with a reason is the only way a genuine gap is distinguishable from a forgotten one.
+- **The grouping is all three places or none of them.** If the run has areas (Step 5d), it has a `## Navigation` list, sub-headings under `## Test cases`, and one `## Details — <area>` section per area — and the ranges agree across all three. Half a grouping is worse than none: the renderer reads the `## Details — <area>` headings, so a report that groups the checklist but keeps one flat `## Details` gets no areas in the HTML and the reader is told about ranges the page can't show. Below ~10 cases, none of the three: plain `## Details`, no `## Navigation`, no sub-headings.
 
 #### Render the HTML
 
@@ -369,7 +402,20 @@ python3 <skill-dir>/scripts/render_report.py docs/test-runs/<report>.md
 
 It prints the path it wrote and needs nothing but Python 3 — no pip install, no network, one self-contained file.
 
-The HTML is deliberately not a copy of the Markdown in a nicer font. It's a dashboard built from the same facts: a pass-rate ring, counts of cases/endpoints/DB checks, a bar chart of every status code the run saw, an endpoint coverage table (which paths were hit, which statuses each returned), and one card per case showing a `METHOD → path → status → error code → DB` flow strip above the evidence. Failures are pre-opened and the checklist section is dropped, because the dashboard already says it.
+The HTML is deliberately not a copy of the Markdown in a nicer font. It's a dashboard built from the same facts, and everything on it is read off the report — nothing is invented, so a case that showed no curl says so instead of guessing an endpoint.
+
+What the reader gets:
+
+- **A one-line headline** that says how the run went — "All 18 cases passed." or "2 of 18 cases failed — start with case 7.", with every failing number linked to its card.
+- **A pass-rate ring**, counts of cases / endpoints / DB checks, and a bar chart of every status code the run saw.
+- **An Areas panel**, on a grouped report only: one row per area with its case range, its case count, a pass/fail bar and its failing numbers, each linked. It is counted from the cases themselves, so it cannot drift from the Markdown — which is why the page then drops your `## Navigation` list and the lead paragraph under each `## Details — <area>` rather than printing the same facts twice. A report with no areas gets no panel and loses nothing.
+- **An endpoint coverage table** — which paths were hit, which statuses each returned — where **every row links to the cases behind it**. The case numbers are real links to the cards (`#case-7`), sorted numerically, so "which case saw that 409?" is a click instead of a text search. A case whose curl didn't parse still gets a row, labelled "no request captured", and is still linked.
+- **A hint on every one of those numbers.** Hovering or tabbing to a case number shows the case's number, title, verdict, HTTP status, error code and — on a grouped report — its area, before the click. The same sentence is on the link as an `aria-label`, so a keyboard or screen-reader user gets the identical facts. Fields the case never showed are simply absent from the hint.
+- **One card per case.** Inside a card the `**Goal:**` / `**DB before:**` / `**Request:**` / `**Response:**` / `**DB after:**` / `**Result:**` labels become a numbered step rail, and each `http` block shows its status as a chip with the headers folded so the body is read first — so keep using those labels exactly. Failures are pre-opened.
+- **Area dividers in the case list**, on a grouped report: each area opens with its title, its range and its split, and carries its own lead paragraph. Turning on "Only failures" hides a divider whose cases have all just been hidden.
+- **A sticky bar** with Expand all / Collapse all / Only failures / Jump-to-case that follows the reader down the list. The jump list is grouped by area when there are areas, and a plain list when there aren't.
+
+The `## Test cases` checklist is dropped from the HTML because the cards and the dashboard already say it.
 
 If it errors, fix the Markdown rather than hand-writing HTML — an error almost always means a malformed fence or a missing blank line between headers and body inside an `http` block, and that same malformed block is what makes the Markdown hard to read too.
 
