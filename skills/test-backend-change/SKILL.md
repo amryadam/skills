@@ -61,6 +61,7 @@ Use the `Agent` tool with `subagent_type: "general-purpose"` and the `model` par
 - The resolved knobs (`depth`, `max`, `workers`, `only`).
 - The project's memory directory path so it can read/write `reference_backend_setup.md`.
 - The absolute path to this skill directory (for `references/scenario-catalog.md`), and the instruction to execute Steps 2–5 of this file only — no curls beyond the auth check.
+- The instruction to order the cases per Step 5d — happy path first, rare cases last — and to number them only after ordering. A planner told only to "design cases" emits them in the order it thought of them, which is diff order, not reading order.
 - The instruction to walk the full Step 5b checklist and fill in the `## Scenario coverage` table, marking every category with case numbers, N/A + reason, or "not run (over cap)" + case numbers. Without this line the planner optimises for finishing, not for coverage.
 - The required return format (below).
 
@@ -225,23 +226,39 @@ Mining the diff finds what the change *does*. This checklist finds what the chan
 
 **Every case states its expected outcome** — status, error code, DB state — before anything runs. The worker compares against that line; a case without an expectation can't fail, which means it can't pass either.
 
-#### 5d — Group the cases into areas
+#### 5d — Order the cases from common to rare
+
+Put the list in reading order now, before anything gets a number. This applies to every run: a flat list of six cases and a grouped list of eighty both read better in the same order, so it belongs here rather than inside the grouping step that a small run skips.
+
+**Happy path first.** The primary success of the change opens the list. Then the usual failures — bad input, no token, the wrong tenant, the missing row. Then the rare ones last: concurrency, replay, boundary limits, protocol oddities, and the cases you wrote because one line of the diff looked odd.
+
+Two reasons this is worth the minute it costs:
+
+- A reader who stops halfway has still read the cases that carry the most weight. A list that opens with `Content-Type: text/plain` spends the reader's attention on the least important claim in the run.
+- A reviewer sees at once whether the basic path was tested at all. A case list with no happy path near the top usually has none anywhere, and that is exactly the gap this skill exists to close.
+
+**A change to error handling is not an exception.** When the whole diff is about failure responses it is tempting to open with the first error case. The happy path is still there — it is "the endpoint still succeeds and its success body is unchanged", and the neighbour-regression row of 5b usually already holds it. Lead with that, then the error cases.
+
+Number the cases only after they are in this order, not before.
+
+#### 5e — Group the cases into areas
 
 Six cases are a list. Eighty in one flat list are a wall, and a reader who can't find the part they came for reads none of it. Decide the grouping here, while the diff is still in front of you — not afterwards, when the numbers are already fixed and regrouping means renumbering.
 
 An **area** is one coherent slice of the change: the error envelope, signup validation, the editor endpoints, the bundle endpoint plus tenant isolation. Three to six areas is the useful range; ten areas is a second flat list wearing a hat.
 
-Three rules make an area worth having:
+Two rules make an area worth having:
 
 - **Case numbers stay contiguous.** An area is one unbroken range — 1–16, 17–36, 37–61 — never "1–4, 9, 22". Number the cases in area order and the ranges fall out on their own. Contiguity is what lets the report state a range instead of listing twenty numbers, and what lets a reader jump to an area and trust that everything under the heading belongs to it.
-- **Cases go from common to rare.** Put the happy path first. Then put the usual failures: bad input, no token, the wrong tenant. Put the rare cases last: concurrency, replay, boundary limits, and the cases you wrote because one line of the diff looked odd. A reader who stops halfway has still read the cases that carry the most weight, and a reviewer sees at once whether you tested the basic path at all. Order the areas the same way — the area that holds the main change goes first, the far corners go last. Number the cases after you put them in this order, not before.
 - **Titles are short and plain.** Three to five words in ASD-STE100 Simplified Technical English (the user's global rule), naming the slice and not the verdict: "Signup validation", "Bundle endpoint and tenant isolation". A title you can't say in five words is usually two areas.
 
-**Below roughly 10 cases, don't group.** Grouping eight cases costs the reader a `## Navigation` section, a set of sub-headings and a set of `## Details —` splits to organize eight cards they could have read in one pass — ceremony charged against a report nobody needed help with. Ten is guidance, not a gate: eight cases that fall into two obvious halves can be grouped, and fourteen cases that are all one endpoint and one validator should stay flat. The honest test is whether you can name the areas in four words each without straining. If you can't, the run doesn't have areas — leave it flat, and the renderer will leave it flat too. The common-to-rare order still applies to a flat list: happy path first, the rare cases last.
+**Order the areas the way 5d orders the cases** — the area holding the main change goes first, the far corners (migration, concurrency, throttling) go last. Inside an area the 5d order still holds, so the happy path of the whole run is case 1.
+
+**Below roughly 10 cases, don't group.** Grouping eight cases costs the reader a `## Navigation` section, a set of sub-headings and a set of `## Details —` splits to organize eight cards they could have read in one pass — ceremony charged against a report nobody needed help with. Ten is guidance, not a gate: eight cases that fall into two obvious halves can be grouped, and fourteen cases that are all one endpoint and one validator should stay flat. The honest test is whether you can name the areas in four words each without straining. If you can't, the run doesn't have areas — leave it flat, and the renderer will leave it flat too. Ordering is not optional either way — 5d applies to a flat list exactly as it applies to a grouped one.
 
 **If the run is split across parallel worker agents, the areas are already decided.** Each worker owns a case-number range, so each range *is* an area: hand the worker its area title along with its range, and have it number only inside that range. The merge step then preserves the grouping for free — no renumbering across workers, which would break the one property the report depends on.
 
-#### 5e — Tier, cap, and assign
+#### 5f — Tier, cap, and assign
 
 The full list is the honest size of the change. In practice a one-line bug fix lands around 5–8 cases and a new endpoint with a state machine and tenant scoping lands around 15–25. If you've written fewer than 8 for anything bigger than a typo fix, go back to 5b — you skipped rows. The `depth` knob then decides how many run *this time*; the rest are recorded, not forgotten.
 
@@ -254,7 +271,8 @@ The full list is the honest size of the change. In practice a one-line bug fix l
 
 Cut cases go under a `## Not run` heading in the skeleton, numbered continuously after the last running case, each with `— over cap (depth=standard)`. In the coverage table, a row whose only cases were cut reads `not run (over cap): 21, 22`. That's how a later `only=21,22` run knows what to pick up, and how the reader knows the green ring covers 20 of 27, not 20 of 20.
 
-**Assign workers** by what a case touches, not by number:
+**Assign workers** by what a case touches, not by number. Assignment never renumbers: the 5d order and the area ranges are already fixed, and a worker owns a contiguous range of them.
+
 
 - **A — read-only & negative:** authentication, authorization/isolation reads, validation, boundaries, not-found, protocol, error contract. Writes nothing, so it can run beside anything.
 - **B — writes:** happy path, persistence, conflict, idempotency, state machine, neighbour regression. Sequential inside the worker because each depends on the state the previous one left.
@@ -358,7 +376,7 @@ Skeleton structure:
 
 ## Navigation
 <Below ~10 cases, drop this section, drop the sub-headings under `## Test cases`,
-and use a single flat `## Details`. See Step 5d.>
+and use a single flat `## Details`. See Step 5e.>
 
 The <N> cases are in <k> areas. Each area is one unbroken range of case numbers.
 
@@ -463,7 +481,7 @@ Five things matter most about the report:
 - **The DB output is real.** Don't summarize it ("the row was created") — paste the actual psql output. That's the proof.
 - **Every case ends with a `**Result:** PASS` / `FAIL` / `SKIP` line.** This is both the honest verdict and the hook the renderer reads to colour the case and build the pass/fail counts at the top. A case with no `**Result:**` line silently drops out of the tally.
 - **The coverage table is filled in, N/A and not-run rows included.** The pass count says how many claims held; the coverage table says how many claims were made and how many were deferred. A reader needs all three to know how much the green ring is worth, and an N/A with a reason is the only way a genuine gap is distinguishable from a forgotten one.
-- **The grouping is all three places or none of them.** If the run has areas (Step 5d), it has a `## Navigation` list, sub-headings under `## Test cases`, and one `## Details — <area>` section per area — and the ranges agree across all three. Half a grouping is worse than none: the renderer reads the `## Details — <area>` headings, so a report that groups the checklist but keeps one flat `## Details` gets no areas in the HTML and the reader is told about ranges the page can't show. Below ~10 cases, none of the three: plain `## Details`, no `## Navigation`, no sub-headings.
+- **The grouping is all three places or none of them.** If the run has areas (Step 5e), it has a `## Navigation` list, sub-headings under `## Test cases`, and one `## Details — <area>` section per area — and the ranges agree across all three. Half a grouping is worse than none: the renderer reads the `## Details — <area>` headings, so a report that groups the checklist but keeps one flat `## Details` gets no areas in the HTML and the reader is told about ranges the page can't show. Below ~10 cases, none of the three: plain `## Details`, no `## Navigation`, no sub-headings.
 
 #### Render the HTML
 
