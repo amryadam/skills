@@ -1,6 +1,6 @@
 {
   "name": "amryadam-skills",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Skills for backend engineering work, starting with end-to-end API testing against a real running service.",
   "author": {
     "name": "Amr Yadam"
