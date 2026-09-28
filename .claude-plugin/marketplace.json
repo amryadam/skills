@@ -9,7 +9,7 @@
     {
       "name": "amryadam-skills",
       "source": "./",
-      "description": "Skills for backend engineering work, starting with end-to-end API testing against a real running service.",
+      "description": "Skills for backend engineering work: end-to-end API testing against a real running service, and tinycast-style documentation for existing codebases.",
       "category": "engineering",
       "keywords": [
         "engineering",
@@ -17,7 +17,8 @@
         "backend",
         "testing",
         "api",
-        "spring-boot"
+        "spring-boot",
+        "documentation"
       ]
     }
   ]
