@@ -28,7 +28,31 @@ reader should finish each paragraph knowing something the code did not tell them
 12. **Diagrams as ASCII in code fences** for layers and topology — they render in every viewer and in
     a terminal. A Mermaid sequence diagram is fine for a long flow if the repo host renders it.
 
+13. **References are names, not citations.** Refer to code by the symbol a reader can search for:
+    `Class.method`, `file.js` and its function, a config key, a table. Never write a file path with a
+    line number, and never put a full path after a sentence as proof. One symbol per sentence is the
+    norm; three stacked after one sentence is a sign the sentence should be split or the extra ones
+    dropped. File paths belong in the feature's `## Layout` table, once. Line numbers go stale on the
+    next edit, and paths after every claim bury the text.
+
 ## Good and bad
+
+**A reference**
+
+Bad:
+> - fasahpayui reads the JWT from the `token` header
+>   `fasahpayui/src/main/java/com/tabadul/fasahpay/fasahSecurity/SecurityConstants.java:7`.
+
+Good:
+> - The BFF reads the JWT from the `token` header (`SecurityConstants.HEADER_STRING`).
+
+Bad (stacked):
+> - The core does not verify the identity headers `FasahPayUiUserContextInterceptor.java:27`,
+>   `WebConfig.java:36`, `WalletServiceRestClient.java:97`.
+
+Good:
+> - The core takes the caller identity from the `Acc-Id` header and does not verify it
+>   (`FasahPayUiUserContextInterceptor.preHandle`).
 
 **Scope line**
 

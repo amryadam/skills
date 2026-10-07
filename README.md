@@ -107,6 +107,16 @@ docs/
 exist; `scripts/check_docs.py` checks links, anchors, the index, the `## Invariants` rule and
 every backticked name against the repo. Secrets are named by key, never copied.
 
+**Features come from the entry points.** The skill lists every endpoint, job, consumer, trigger
+and UI route, traces each one, and links them into flows; each flow is one feature doc, and every
+entry point has exactly one owner or a stated reason for having none. In a workspace of several
+repos the result is one docs set, with features that cross projects.
+
+**Names, not citations.** Docs name code by symbol (`PaymentService.pay`) and keep file paths in
+each feature's `## Layout` table. `scripts/check_docs.py` fails a doc that cites a file with a
+line number. A second agent verifies each doc against the code and keeps its evidence out of
+the page.
+
 **Existing docs stop the run.** If the repo already has `docs/`, `AGENTS.md`, `CLAUDE.md` or
 `CONTEXT.md`, the skill writes nothing, shows a keep / move / merge plan and waits for approval.
 

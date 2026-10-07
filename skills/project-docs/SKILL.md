@@ -46,7 +46,8 @@ These are the reasons behind every step below; when a case is not covered, decid
    value you name must exist in the repo. Read the code before you write about it. When you cannot
    confirm something, leave it out and list it as an open question in your final report. A reader
    trusts a doc more than a guess, so a wrong doc costs more than a missing one — tinycast states it
-   as "a document that contradicts the code is a defect".
+   as "a document that contradicts the code is a defect". Existing specs, plans, BRDs and old design
+   docs are not sources of facts: they say what was intended, and the code says what was built.
 2. **One job, one trigger.** Each document covers one concern and names the change that obliges
    someone to edit it. That is what keeps the set maintainable after you leave.
 3. **Describe the code as it is; keep suspected bugs in one place.** Standards describe what the
@@ -62,6 +63,15 @@ These are the reasons behind every step below; when a case is not covered, decid
    explains it. A fact lives in one document; others link to that document's heading.
 6. **Dense technical English.** Short, exact sentences that name real things. Read
    `references/style.md` before writing — it has the rules and good/bad pairs from real docs.
+7. **Proof belongs to the check, not to the page.** A doc is read far more often than it is audited.
+   Name code by symbol (`PaymentService.pay`) and never cite `path/to/File.java:123` in a sentence.
+   A set written with a path and line after every claim came out with half its characters in
+   references, and every line number went stale on the next edit. The evidence for a claim lives in
+   the writer's and verifier's notes; the doc keeps the name a reader can search for, and each
+   feature's `## Layout` table is the one place its file paths appear.
+8. **The feature list is derived, not guessed.** Features come from a complete inventory of entry
+   points linked into flows (Step 3). A list made by reading around and naming what looks important
+   misses endpoints, jobs and consumers, and nobody can tell which ones.
 
 ## Workflow
 
@@ -94,6 +104,12 @@ persistence, messaging, clients, config, CI, containers and recent git history i
 ```sh
 python3 <skill-dir>/scripts/survey.py <repo-root>
 ```
+
+**A workspace of several repos.** When the target folder holds several projects with no shared
+parent build (an API, a BFF, one or two front ends, an integration adapter), survey each project on
+its own and write ONE docs set for all of them. A feature is then a flow that crosses projects, and
+`architecture.md` opens with a `Project | Job | Stack | Talks to` table. Paths in the docs start with
+the project folder name.
 
 Run `git status` too. If the working tree has uncommitted changes or deletions, decide which state
 the docs describe (usually `HEAD`; read deleted files with `git show HEAD:<path>`), and say so in the
@@ -139,15 +155,42 @@ that belong in no core doc. Otherwise fold the content into the closest core doc
 | Public API conventions (versioning, envelope, error codes) | `api.md` |
 
 **Features** are business capabilities a user or another system would name — Payments, Refunds,
-Invoice submission, Beneficiaries — not layers. In a codebase packaged by layer (`controller/`,
+Invoice submission, Beneficiaries — not layers. Derive them from the entry points, in this order:
+
+1. **List every entry point**, without sampling: HTTP and SOAP endpoints, scheduled jobs, message
+   consumers, in-process event listeners, startup runners, database triggers, UI routes, and
+   widgets a host page loads. `survey.py` gives the first pass; then search each kind with `rg` over
+   the whole project and open every match. Resolve path prefixes, queue names and cron values from
+   config. Keep commented-out and stub ones, marked as such.
+2. **Have a second pass hunt for what the first missed**, searching a different way: list the files
+   in controller, listener, job and route folders and compare; look for functional routes, XML or
+   YAML-defined jobs and queues, lazy-loaded UI modules, and methods skipped inside classes already
+   found. On a large codebase this is a separate subagent that is given the first list.
+3. **Trace each entry point** to where the work leaves the project or ends: the HTTP calls it makes,
+   the queues and events it publishes, the tables it writes, and a status it sets that a job later
+   picks up.
+4. **Link them into flows.** A UI route calls an endpoint; an endpoint calls another project's
+   endpoint; a publish matches the consumer of that queue; a written status matches the job that
+   polls it; an external system calls back. One flow, first trigger to end, is one feature.
+5. **Check coverage by count.** Every entry point is owned by exactly one feature, or sits in an
+   "unused" list with the reason (commented out, stub, no caller). An entry point shared by several
+   flows (login, a lookup) has one owner and the others link to it. If the counts do not add up, the
+   list is not done.
+
+Startup, health, token-refresh and API-docs entry points are not features: they go in
+`architecture.md`. Show the user the flow list (slug, title, projects, entry-point count) and get a
+yes before writing — merging, splitting and renaming are cheap now and expensive after.
+
+In a codebase packaged by layer (`controller/`,
 `service/`, `repository/`), group the files for one domain noun across layers into one feature. In a
 codebase of adapters (`source/x`, `target/y`), one adapter per feature is usually right when each has
 its own rules; otherwise one feature for the family with a section per adapter. Merge features too
 small to have an invariant; split one that needs more than about 800 lines. Most services land between
 4 and 25 features.
 
-Write the list down (feature → files) before writing any doc: architecture, `AGENTS.md` and the index
-all depend on it.
+Write the list down (feature → entry points → files) before writing any doc: architecture,
+`AGENTS.md` and the index all depend on it. Keep the inventory as a working file outside the docs
+set; it is the input for the writers and the reference for the coverage count.
 
 ### Step 4 — Write
 
@@ -169,6 +212,15 @@ file list, the repo root, and the finished `CONTEXT.md`. Ask it to write the fil
 suspected bugs (in the known-issues entry shape from the templates) and unconfirmed facts separately,
 so they reach `known-issues.md` and your report instead of the feature docs.
 
+**The writer does not check its own doc.** After a doc is written, a different subagent verifies it
+against the code: it confirms or corrects each claim, deletes what the code does not prove, checks
+each hop of the flow at both ends (the caller's URL, queue or status against the callee's), and adds
+entry points from the inventory that the doc missed. It keeps its evidence (file and line) in its own
+notes and returns counts and open questions; it does not write citations into the doc. On one set of
+49 docs this pass corrected 742 claims and removed 81, so it is not optional on anything larger than
+a handful of features. When the user has asked for a workflow, run write → verify as a pipeline per
+doc and write the index last.
+
 If the toolchain is present, try the definition-of-done commands once (with a timeout) so
 `testing.md` lists commands that work. If they cannot run here (missing JDK, private registry,
 database), keep the commands the repo documents and say in your report that you did not run them.
@@ -180,10 +232,15 @@ python3 <skill-dir>/scripts/check_docs.py <repo-root>
 ```
 
 It checks that the required files exist, `CLAUDE.md` forwards, every relative link and heading anchor
-resolves, every feature doc opens with `## Invariants`, the index lists every doc, and every
-backticked path or class name exists somewhere in the repo. Fix every error. Treat each warning as a
+resolves, every feature doc opens with `## Invariants`, the index lists every doc, no doc cites a
+file with a line number, and every backticked path or class name exists somewhere in the repo. It
+warns where long paths sit in prose instead of in a `## Layout` table. Fix every error. Treat each warning as a
 possible invention: confirm it in the code or remove it. Expected warnings are library and JDK names
 (`NullPointerException`), runtime file names the app creates, and files outside the repo.
+
+Then read one feature doc from top to bottom as a newcomer before you report. If the references
+make you skip, the set has the same problem everywhere: thin them out per `references/style.md`
+rule 13 now, because converting a finished set costs a full pass over every doc.
 
 Then reread `AGENTS.md` as a newcomer: could someone make a safe first change with only it and the one
 doc it points to? If not, the missing fact belongs in `AGENTS.md` or the link is wrong.

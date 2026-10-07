@@ -345,7 +345,17 @@ Suspected issues in this area: KI-1, KI-4 — see [known-issues.md](../known-iss
 
 **Layout** lists every file that belongs to the feature across layers, with paths short enough to scan
 (relative to the source root, e.g. `payment/fees/FeeCalculator.java`). State once at the top of the
-table which root the paths are relative to if it is not obvious.
+table which root the paths are relative to if it is not obvious. In a workspace of several repos,
+start each path with the project folder, or give one table per project.
+
+**Layout is the only place a file path appears.** Every other section names code by symbol
+(`FeeCalculator.calculate`) with no path and no line number, and every file named that way has a row
+here, so a reader can get from the name to the file.
+
+**Entry points** lists every entry point the inventory assigned to this feature (Step 3), not a
+selection: a reader uses the table to answer "is this endpoint part of that flow?". When the flow
+passes through an entry point another feature owns, link to that feature's doc instead of repeating
+it.
 
 ---
 

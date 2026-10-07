@@ -4,8 +4,10 @@
 Usage: check_docs.py <repo-root>
 
 Errors (must fix): missing required files, CLAUDE.md not forwarding, broken relative links or
-heading anchors, a feature doc not opening with '## Invariants', a doc missing from the index.
-Warnings (confirm or remove): backticked paths or class names that do not appear in the repo.
+heading anchors, a feature doc not opening with '## Invariants', a doc missing from the index,
+a file cited with a line number (`src/Foo.java:42`).
+Warnings (confirm or remove): backticked paths or class names that do not appear in the repo,
+and long file paths in prose that belong in a '## Layout' table.
 Exit code 1 when there is any error.
 """
 import os
@@ -23,6 +25,12 @@ FENCE_RX = re.compile(r"^(```|~~~).*?^\1", re.S | re.M)
 IDENT_RX = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 CAMEL_RX = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+$")
 PATHLIKE_RX = re.compile(r"^[\w.\-/]+$")
+SOURCE_EXT = (r"(?:java|kt|scala|groovy|ts|tsx|js|jsx|mjs|py|go|rs|cs|rb|php|swift|dart|vue|svelte|"
+              r"html|scss|css|sql|xml|ya?ml|properties|json|sh|gradle)")
+# `path/File.java:42` or `File.java:42-50`: a citation, not a name. URLs and image tags do not match.
+LINE_REF_RX = re.compile(r"^[\w.\-/]*\." + SOURCE_EXT + r":\d+(?:-\d+)?$")
+# A source file three or more folders deep: fine in a table, noise in a sentence.
+DEEP_PATH_RX = re.compile(r"^(?:[\w.\-]+/){3,}[\w.\-]+\." + SOURCE_EXT + r"$")
 
 
 def repo_files(root):
@@ -148,6 +156,16 @@ def main():
             head = re.split(r"[.#(:]", t)[0]
             if CAMEL_RX.match(head) and head not in idents and not re.search(r"(Exception|Error)$", head):
                 warnings.append(f"{rel}: name not found in source: `{t}`")
+
+        line_refs = [t.strip() for t in TICK_RX.findall(text) if LINE_REF_RX.match(t.strip())]
+        if line_refs:
+            errors.append(f"{rel}: {len(line_refs)} file reference(s) with a line number, e.g. "
+                          f"`{line_refs[0]}` - name the symbol instead")
+        deep = sum(1 for line in text.splitlines() if not line.lstrip().startswith("|")
+                   for t in TICK_RX.findall(line) if DEEP_PATH_RX.match(t.strip()))
+        if deep > 5:
+            warnings.append(f"{rel}: {deep} long file paths in prose - name the symbol and keep "
+                            f"paths in the Layout table")
 
         if rel.startswith("docs/features/"):
             first = re.search(r"^##\s+(.+)$", text, re.M)

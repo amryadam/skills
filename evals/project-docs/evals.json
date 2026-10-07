@@ -5,22 +5,28 @@
       "id": 1,
       "name": "adapter-service-full",
       "prompt": "create a docs folder for my project at {REPO} like this one https://github.com/abue-ammar/tinycast/tree/main/docs",
-      "expected_output": "AGENTS.md, CLAUDE.md (@AGENTS.md), CONTEXT.md, docs/README.md index with an 'Edit it when' column, architecture/standards/testing/development, topic docs where the repo has the substance, docs/known-issues.md with KI-n entries, and features/*.md each opening with ## Invariants and a File | Role layout table — all grounded in the real code.",
-      "files": ["A Spring Boot service with no docs, several source/target integration adapters and scheduled sync jobs"]
+      "expected_output": "AGENTS.md, CLAUDE.md (@AGENTS.md), CONTEXT.md, docs/README.md index with an 'Edit it when' column, architecture/standards/testing/development, topic docs where the repo has the substance, docs/known-issues.md with KI-n entries, and features/*.md each opening with ## Invariants and a File | Role layout table — all grounded in the real code. Docs name code by symbol and cite no file with a line number; file paths sit in the Layout tables. Every endpoint, job and consumer in the repo appears in exactly one feature's entry points, or is reported as unused.",
+      "files": [
+        "A Spring Boot service with no docs, several source/target integration adapters and scheduled sync jobs"
+      ]
     },
     {
       "id": 2,
       "name": "payments-service-casual",
       "prompt": "new people on the team keep breaking the fees stuff in the payments service ({REPO}). can you document this service properly so both humans and claude get how it works before they touch anything? i like how tinycast does it on github",
-      "expected_output": "Full doc set; a fees feature doc with concrete invariants (amount fields, rounding, fee rules) that name the enforcing code; migrations and message consumers covered; suspected defects in docs/known-issues.md, not inside feature docs.",
-      "files": ["A Spring Boot payments service with fee calculation, Liquibase migrations and RabbitMQ consumers"]
+      "expected_output": "Full doc set; a fees feature doc with concrete invariants (amount fields, rounding, fee rules) that name the enforcing code; migrations and message consumers covered; suspected defects in docs/known-issues.md, not inside feature docs. Docs name code by symbol and cite no file with a line number; file paths sit in the Layout tables. Every endpoint, job and consumer in the repo appears in exactly one feature's entry points, or is reported as unused.",
+      "files": [
+        "A Spring Boot payments service with fee calculation, Liquibase migrations and RabbitMQ consumers"
+      ]
     },
     {
       "id": 3,
       "name": "existing-docs-stop",
       "prompt": "set up docs for this service ({REPO}) the tinycast way — AGENTS.md, docs/, feature docs etc",
-      "expected_output": "Detects the existing docs/ content, writes NO files, and presents a plan (keep the existing files, list of new files and features) and asks for approval.",
-      "files": ["A Spring Boot service whose docs/ already holds an implementation plan from another tool"]
+      "expected_output": "Detects the existing docs/ content, writes NO files, and presents a plan (keep the existing files, list of new files and features) and asks for approval. Docs name code by symbol and cite no file with a line number; file paths sit in the Layout tables. Every endpoint, job and consumer in the repo appears in exactly one feature's entry points, or is reported as unused.",
+      "files": [
+        "A Spring Boot service whose docs/ already holds an implementation plan from another tool"
+      ]
     }
   ]
 }
